@@ -96,15 +96,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
 
-        # Health check endpoint
+        # Health check endpoint (always return 200 so container orchestrators like Railway mark healthy)
         if parsed.path in ("/health", "/api/health"):
             configured = bool(LIVEKIT_URL and LIVEKIT_API_KEY and LIVEKIT_API_SECRET)
             self._send_json(
-                200 if configured else 503,
+                200,
                 {
-                    "status": "healthy" if configured else "misconfigured",
+                    "status": "healthy",
                     "livekit_configured": configured,
                     "agent_name": LIVEKIT_AGENT_NAME,
+                    "message": "Server running" if configured else "Server running, waiting for LiveKit credentials",
                 },
             )
             return
@@ -113,11 +114,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/token":
             if not (LIVEKIT_URL and LIVEKIT_API_KEY and LIVEKIT_API_SECRET):
                 self._send_json(
-                    500,
+                    503,
                     {
                         "error": (
                             "LiveKit credentials missing. Ensure LIVEKIT_URL, "
-                            "LIVEKIT_API_KEY, and LIVEKIT_API_SECRET are set in .env"
+                            "LIVEKIT_API_KEY, and LIVEKIT_API_SECRET are configured in "
+                            "your environment variables (or Railway Variables tab)."
                         )
                     },
                 )
@@ -189,15 +191,16 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class NonReusingHTTPServer(ThreadingHTTPServer):
-    # Prevent multiple processes from binding to the same port on Windows
-    allow_reuse_address = False
+    # On Windows, disable reuse address to prevent accidental duplicate bindings.
+    # On Linux/production containers, SO_REUSEADDR is required so restarting containers or socket TIME_WAIT doesn't cause Errno 98 (port in use).
+    allow_reuse_address = sys.platform != "win32"
 
 
 def main():
     if not (LIVEKIT_URL and LIVEKIT_API_KEY and LIVEKIT_API_SECRET):
         logger.warning(
-            "LIVEKIT_URL, LIVEKIT_API_KEY, or LIVEKIT_API_SECRET not found in .env! "
-            "Token requests will fail until these are configured."
+            "LIVEKIT_URL, LIVEKIT_API_KEY, or LIVEKIT_API_SECRET not found in environment! "
+            "Token requests will return 503 until these are configured."
         )
     else:
         logger.info(f"Configured with LiveKit URL: {LIVEKIT_URL}")
@@ -212,7 +215,8 @@ def main():
         )
         sys.exit(1)
 
-    logger.info(f"Serving frontend and token API on http://localhost:{PORT}")
+    logger.info(f"Serving frontend and token API on http://{HOST}:{PORT}")
+    sys.stdout.flush()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

@@ -16,6 +16,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libopus0 \
     libopus-dev \
+    libasound2 \
+    libasound2-dev \
+    libportaudio2 \
+    portaudio19-dev \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -35,8 +40,11 @@ RUN uv run python -m livekit.agents download-files
 # Copy the rest of the application code
 COPY . .
 
+# Ensure venv Python and executables are on PATH
+ENV PATH="/app/.venv/bin:$PATH"
+
 # Expose web server port (Railway routes to $PORT or default 8000)
 EXPOSE 8000
 
-# Run both the token/web server and voice agent
-CMD ["uv", "run", "run_all.py"]
+# Run both the token/web server and voice agent directly
+CMD ["python", "run_all.py"]

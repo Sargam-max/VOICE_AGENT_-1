@@ -73,11 +73,13 @@ if __name__ == "__main__":
     )
     # If LIVEKIT_AGENT_NAME is specified, worker registers with explicit dispatch
     agent_name = os.environ.get("LIVEKIT_AGENT_NAME", "my-voice-agent")
+    worker_port = int(os.environ.get("LIVEKIT_WORKER_PORT", "0"))
     cli.run_app(
         WorkerOptions(
             entrypoint_fnc=entrypoint,
             agent_name=agent_name,
             num_idle_processes=0,
             job_executor_type=JobExecutorType.THREAD,
+            port=worker_port,
         )
     )
