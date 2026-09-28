@@ -1,0 +1,26 @@
+# Environment and credentials (NEVER commit secrets to git)
+.env
+.env.*
+!.env.example
+
+# Python virtual environment & cache
+.venv/
+env/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+
+# Local logs & model downloads
+*.log
+KMS/logs/*
+
+# Zip packages
+*.zip
+
+# Operating system artifacts
+.DS_Store
+Thumbs.db
