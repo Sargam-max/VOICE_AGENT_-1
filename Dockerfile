@@ -6,7 +6,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     OPENBLAS_NUM_THREADS=1 \
     OMP_NUM_THREADS=1 \
-    PORT=8000 \
     HOST=0.0.0.0 \
     ENV=production
 
@@ -21,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install uv for ultra-fast package management
+# Install uv for package management
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Copy dependency specifications first to leverage Docker layer caching
@@ -30,18 +29,14 @@ COPY pyproject.toml uv.lock ./
 # Install Python dependencies
 RUN uv sync --frozen --no-dev --no-install-project
 
-# Pre-download VAD and Turn-Detector models during build so the container starts immediately
+# Pre-download VAD and Turn-Detector models during build so container boots instantly
 RUN uv run python -m livekit.agents download-files
 
 # Copy the rest of the application code
 COPY . .
 
-# Expose web server port
+# Expose web server port (Railway routes to $PORT or default 8000)
 EXPOSE 8000
 
-# Docker healthcheck
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
-
-# Default command runs both the token/web server and the voice agent
+# Run both the token/web server and voice agent
 CMD ["uv", "run", "run_all.py"]

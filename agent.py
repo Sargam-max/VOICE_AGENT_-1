@@ -10,7 +10,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 load_dotenv()
 
 from livekit import agents
-from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli, room_io
+from livekit.agents import Agent, AgentSession, JobContext, JobExecutorType, WorkerOptions, cli, room_io
 from livekit.agents.inference import TurnDetector
 from livekit.plugins import assemblyai, cartesia, google, noise_cancellation, silero
 
@@ -77,5 +77,7 @@ if __name__ == "__main__":
         WorkerOptions(
             entrypoint_fnc=entrypoint,
             agent_name=agent_name,
+            num_idle_processes=0,
+            job_executor_type=JobExecutorType.THREAD,
         )
     )

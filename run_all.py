@@ -5,10 +5,7 @@ Runs both:
   1. The Web & Token server (server.py)
   2. The LiveKit Voice Agent worker (agent.py)
 
-Usage:
-  uv run run_all.py
-  # or
-  python run_all.py
+Supports both local development and cloud container environments (Railway, Render, Fly.io).
 """
 
 import os
@@ -28,44 +25,43 @@ def main():
     print("=" * 60)
 
     port = os.environ.get("PORT", "8000")
-    agent_mode = "start" if os.environ.get("ENV") == "production" else "dev"
-
     python_bin = sys.executable
+    env = os.environ.copy()
 
     print(f"[*] Starting Token & Web Server on port {port}...")
     server_process = subprocess.Popen(
         [python_bin, "server.py"],
+        env=env,
         stdout=sys.stdout,
         stderr=sys.stderr,
     )
 
-    # Brief delay so the web server binds port first
+    # Brief delay so web server is up and listening first
     time.sleep(1)
 
-    print(f"[*] Starting Voice Agent worker (mode: {agent_mode})...")
+    print("[*] Starting Voice Agent worker...")
     agent_process = subprocess.Popen(
-        [python_bin, "agent.py", agent_mode],
+        [python_bin, "agent.py", "start"],
+        env=env,
         stdout=sys.stdout,
         stderr=sys.stderr,
     )
 
     print("-" * 60)
-    print(f"[*] Everything is running!")
-    print(f"[*] Open browser at: http://localhost:{port}")
-    print("    Press Ctrl+C at any time to shut down both services.")
+    print(f"[*] All services initiated on port {port}!")
     print("-" * 60)
 
     def shutdown(signum=None, frame=None):
-        print("\n[*] Shutting down all services...")
+        print("\n[*] Shutting down services...")
         for p in (server_process, agent_process):
-            if p.poll() is None:
+            if p and p.poll() is None:
                 try:
                     p.terminate()
                 except Exception:
                     pass
         time.sleep(1)
         for p in (server_process, agent_process):
-            if p.poll() is None:
+            if p and p.poll() is None:
                 try:
                     p.kill()
                 except Exception:
@@ -78,14 +74,23 @@ def main():
 
     try:
         while True:
-            # Check if any process died unexpectedly
+            # If server dies, exit so container supervisor knows to restart
             if server_process.poll() is not None:
                 print(f"[!] Server process exited with code {server_process.returncode}")
                 shutdown()
+
+            # If agent process dies, restart it automatically with backoff
             if agent_process.poll() is not None:
-                print(f"[!] Agent process exited with code {agent_process.returncode}")
-                shutdown()
-            time.sleep(0.5)
+                print(f"[!] Agent worker exited with code {agent_process.returncode}. Restarting in 5s...")
+                time.sleep(5)
+                agent_process = subprocess.Popen(
+                    [python_bin, "agent.py", "start"],
+                    env=env,
+                    stdout=sys.stdout,
+                    stderr=sys.stderr,
+                )
+
+            time.sleep(1)
     except KeyboardInterrupt:
         shutdown()
 
