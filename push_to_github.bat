@@ -8,7 +8,7 @@ echo.
 
 cd /d "%~dp0"
 
-set "PATH=%PATH%;C:\Program Files\GitHub CLI;C:\Users\%USERNAME%\AppData\Local\Microsoft\WinGet\Links"
+set "PATH=%PATH%;C:\Program Files\GitHub CLI;C:\Users\%USERNAME%\AppData\Local\Microsoft\WinGet\Links;C:\Users\%USERNAME%\AppData\Local\Microsoft\WinGet\Packages\Git.MinGit_Microsoft.Winget.Source_8wekyb3d8bbwe\cmd"
 
 echo [*] Checking GitHub login status...
 gh auth status >nul 2>nul

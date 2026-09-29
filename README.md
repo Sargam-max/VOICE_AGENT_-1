@@ -115,15 +115,35 @@ The agent connects via standard `MCPServerStdio` to `mcp_server.py`, equipping t
 - **`calendar_delete_event(event_id)`**: Cancel an event by ID.
 - *Google Calendar Sync (Optional)*: Set `GOOGLE_CALENDAR_ICAL_URL` in `.env` to automatically merge events from your live Google Calendar.
 
-### 3. Gmail Integration
-- **`gmail_send_email(to_email, subject, body)`**: Composes and sends real emails via Gmail SMTP (`smtp.gmail.com:465` SSL).
-- **`gmail_read_inbox(max_results=5, unread_only=True)`**: Reads and extracts sender, subject, and snippet from Gmail inbox via IMAP (`imap.gmail.com:993` SSL).
-- **`gmail_search_emails(query, max_results=5)`**: Searches emails by keyword or sender.
-- *Cost*: **100% FREE** using standard Google App Passwords:
-  1. Visit [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).
-  2. Generate a 16-letter App Password for "Mail".
-  3. Add `GMAIL_ADDRESS` and `GMAIL_APP_PASSWORD` to your `.env` or Railway settings.
-  *(If credentials are not yet configured, the agent gracefully records messages to a simulated outbox so workflows never fail!)*
+### 3. Per-User Google OAuth 2.0 & Gmail API v1 (Recommended)
+- **`gmail_send_email(to_email, subject, body)`**: Composes and sends real emails via the official Gmail REST API v1 (`https://gmail.googleapis.com/gmail/v1/users/me/messages/send`) using base64url-encoded RFC 2822 MIME format.
+- **`gmail_read_inbox(max_results=5, unread_only=True)`**: Retrieves and parses recent inbox emails via Gmail REST API v1 (`messages.list` + `messages.get`).
+- **`gmail_search_emails(query, max_results=5)`**: Searches emails by keyword, sender, or subject via Gmail REST API query parameters.
+- **`gmail_auth_status()`**: Returns current Google connection status and authorized email.
+
+#### How Multi-User OAuth Works:
+1. **Isolated Per-User MCP**: When a user connects to the room, the voice agent extracts their unique `user_id` (`participant.identity`) and spawns a dedicated `mcp.MCPServerStdio` process isolated with `--user-id {user_id}` and `CURRENT_USER_ID`.
+2. **Secure Token Storage**: Each user's tokens are saved in `data/tokens/{user_id}.json` (ignored by git).
+3. **Automatic Token Refresh**: The system monitors token expiration and automatically requests a fresh access token from Google's token endpoint (`https://oauth2.googleapis.com/token`) using the refresh token before any API call.
+4. **Fallback Handling**: If an unauthenticated user asks to send or read an email, the agent politely informs them to connect their Google account and logs simulated actions to prevent crashes.
+
+#### Google Cloud Console Setup (Free):
+1. Navigate to the [Google Cloud Console](https://console.cloud.google.com/) and create or select a project.
+2. In **APIs & Services > Library**, enable:
+   - **Gmail API**
+   - **Google Calendar API** (optional)
+3. In **APIs & Services > OAuth consent screen**:
+   - User Type: **External**
+   - Scopes: `https://www.googleapis.com/auth/gmail.send`, `https://www.googleapis.com/auth/gmail.readonly`, `https://www.googleapis.com/auth/userinfo.email`
+   - In Test users, add your email address (while in "Testing" mode).
+4. In **APIs & Services > Credentials > Create Credentials > OAuth client ID**:
+   - Application type: **Web application**
+   - Authorized redirect URIs:
+     - `http://localhost:8000/auth/google/callback` (Local testing)
+     - `https://voiceagent-1-production.up.railway.app/auth/google/callback` (Production)
+5. Copy the generated **Client ID** and **Client Secret** into your `.env` or Railway Variables:
+   - `GOOGLE_CLIENT_ID=your_id.apps.googleusercontent.com`
+   - `GOOGLE_CLIENT_SECRET=your_secret`
 
 ---
 
@@ -189,10 +209,15 @@ docker compose logs -f
   {
     "status": "healthy",
     "livekit_configured": true,
-    "agent_name": "my-voice-agent"
+    "agent_name": "my-voice-agent",
+    "google_oauth_configured": true
   }
   ```
-- `GET /api/token?identity=Name&room=room-id` — Issues LiveKit room join token with explicit agent dispatch claims.
+- `GET /api/token?identity=user_id&name=display_name&room=room-id` — Issues LiveKit room join token with explicit agent dispatch claims.
+- `GET /auth/google/login?user_id=user_id` — Generates Google OAuth 2.0 authorization URL and redirects user.
+- `GET /auth/google/callback?code=...&state=user_id` — OAuth callback that securely exchanges code for tokens, writes `data/tokens/{user_id}.json`, and posts a success message to parent window.
+- `GET /api/auth/google/status?user_id=user_id` — Returns JSON status indicating if Google OAuth is configured, authenticated, and associated email.
+- `POST /api/auth/google/disconnect?user_id=user_id` — Revokes and deletes stored tokens for the specified user.
 
 ---
 
@@ -206,6 +231,9 @@ docker compose logs -f
 | `GOOGLE_API_KEY` | Yes | Google Gemini API key for `gemini-2.5-flash` |
 | `CARTESIA_API_KEY` | Yes | Cartesia API key for `sonic-3` TTS |
 | `ASSEMBLYAI_API_KEY` | Yes | AssemblyAI API key for streaming STT |
+| `GOOGLE_CLIENT_ID` | Recommended | Google OAuth 2.0 Client ID for per-user Gmail & Calendar API access |
+| `GOOGLE_CLIENT_SECRET` | Recommended | Google OAuth 2.0 Client Secret |
+| `GOOGLE_REDIRECT_URI` | No | Explicit OAuth redirect URI (auto-inferred if omitted) |
 | `LIVEKIT_AGENT_NAME` | No | Agent name dispatched to rooms (default: `my-voice-agent`) |
 | `PORT` | No | HTTP server port (default: `8000`) |
 | `HOST` | No | HTTP server host binding (default: `0.0.0.0`) |

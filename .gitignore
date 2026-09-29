@@ -25,5 +25,8 @@ KMS/logs/*
 .DS_Store
 Thumbs.db
 
-# Dynamic runtime data
+# Dynamic runtime data & OAuth tokens
+data/tokens/
+data/tokens/*
+data/calendar_events.json
 data/simulated_outbox.json

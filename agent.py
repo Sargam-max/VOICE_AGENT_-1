@@ -28,6 +28,8 @@ from livekit.plugins import assemblyai, cartesia, google, noise_cancellation, si
 
 logger = logging.getLogger("voice-agent")
 
+from auth_manager import auth_manager
+
 MCP_SERVER_SCRIPT = str(Path(__file__).parent / "mcp_server.py")
 
 
@@ -39,7 +41,7 @@ class Assistant(Agent):
                 "You are equipped with powerful real-time tools via Model Context Protocol (MCP):\n"
                 "1. Web Search & Breaking News (search_web, search_news): Query live web facts, weather, news, documentation.\n"
                 "2. Calendar Scheduling & Events (calendar_list_events, calendar_create_event, calendar_delete_event): Check schedule, create appointments, delete events.\n"
-                "3. Gmail Integration (gmail_read_inbox, gmail_search_emails, gmail_send_email): Read emails, search messages, or compose & send emails.\n"
+                "3. Gmail Integration (gmail_read_inbox, gmail_search_emails, gmail_send_email, gmail_auth_status): Read emails, search messages, or compose & send emails via user's Google OAuth 2.0.\n"
                 "Whenever the user asks a question requiring current information, scheduling, calendar checks, or email actions, ALWAYS call your tools! "
                 "Keep your answers concise, direct, and conversational since you are speaking out loud. "
                 "Avoid markdown formatting, bulleted lists, code blocks, or special symbols in your speech."
@@ -52,22 +54,28 @@ async def entrypoint(ctx: JobContext):
     logger.info(f"Connecting to room: {ctx.room.name}")
     await ctx.connect()
 
-    # Initialize MCP Toolset (Web Search, Calendar, Gmail)
+    # Wait for the user participant to be ready to determine user identity
+    participant = await ctx.wait_for_participant()
+    user_id = participant.identity or "default"
+    logger.info(f"User connected: {user_id} ({participant.name or 'No name'})")
+
+    # Initialize MCP Toolset scoped specifically to this user
     tools = []
     try:
         mcp_toolset = mcp.MCPToolset(
-            id="productivity-mcp",
+            id=f"productivity-mcp-{user_id}",
             mcp_server=mcp.MCPServerStdio(
                 command=sys.executable,
-                args=[MCP_SERVER_SCRIPT],
+                args=[MCP_SERVER_SCRIPT, "--user-id", user_id],
+                env={**os.environ, "CURRENT_USER_ID": user_id},
             ),
         )
         await mcp_toolset.setup()
         tools.append(mcp_toolset)
         ctx.add_shutdown_callback(mcp_toolset.aclose)
-        logger.info(f"Connected to MCP Server with {len(mcp_toolset.tools)} active tools.")
+        logger.info(f"Connected to MCP Server for user '{user_id}' with {len(mcp_toolset.tools)} active tools.")
     except Exception as e:
-        logger.warning(f"Could not initialize MCP server tools: {e}")
+        logger.warning(f"Could not initialize MCP server tools for '{user_id}': {e}")
 
     session = AgentSession(
         stt="assemblyai/universal-streaming:en",
@@ -87,15 +95,15 @@ async def entrypoint(ctx: JobContext):
         ),
     )
 
-    # Wait for the user participant to be ready
-    participant = await ctx.wait_for_participant()
-    logger.info(f"User joined: {participant.identity} ({participant.name or 'No name'})")
-
     display_name = participant.name or participant.identity or "there"
-    if display_name.startswith("user-") or display_name.lower() in ("guest", "there"):
-        greeting = "Hello! I am your voice AI assistant. I have web search, calendar, and email tools ready. How can I help you today?"
+    is_google_connected = auth_manager.is_user_authenticated(user_id)
+    user_info = auth_manager.get_user_info(user_id) if is_google_connected else None
+    email_addr = user_info.get("email") if user_info else ""
+
+    if is_google_connected and email_addr:
+        greeting = f"Hello {display_name}! Your Gmail account ({email_addr}), calendar, and web search are connected. How can I help you today?"
     else:
-        greeting = f"Hello {display_name}! I am your voice AI assistant. I have web search, calendar, and email tools ready. How can I help you today?"
+        greeting = f"Hello {display_name}! I am your voice assistant with web search, calendar, and email tools ready. How can I help you today?"
 
     try:
         await session.say(greeting)

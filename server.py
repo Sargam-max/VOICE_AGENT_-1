@@ -27,6 +27,8 @@ from livekit.api import AccessToken, VideoGrants  # noqa: E402
 from livekit.protocol.agent_dispatch import RoomAgentDispatch  # noqa: E402
 from livekit.protocol.room import RoomConfiguration  # noqa: E402
 
+from auth_manager import auth_manager  # noqa: E402
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -92,6 +94,33 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         self.end_headers()
         self.wfile.write(body)
+    def _resolve_redirect_uri(self) -> str:
+        explicit = os.environ.get("GOOGLE_REDIRECT_URI", "").strip()
+        if explicit:
+            return explicit
+        host = self.headers.get("Host", f"localhost:{PORT}")
+        proto = self.headers.get("X-Forwarded-Proto", "http")
+        return f"{proto}://{host}/auth/google/callback"
+
+    def _send_html(self, status: int, html_str: str):
+        body = html_str.encode("utf-8")
+        self.send_response(status)
+        self._set_cors_headers()
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/auth/google/disconnect":
+            qs = parse_qs(parsed.query)
+            user_id = qs.get("user_id", ["default"])[0].strip()
+            success = auth_manager.revoke_user(user_id)
+            self._send_json(200, {"success": success, "user_id": user_id, "status": "disconnected"})
+            return
+        self.send_error(404, "Not found")
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -105,7 +134,105 @@ class Handler(BaseHTTPRequestHandler):
                     "status": "healthy",
                     "livekit_configured": configured,
                     "agent_name": LIVEKIT_AGENT_NAME,
+                    "google_oauth_configured": auth_manager.is_oauth_configured(),
                     "message": "Server running" if configured else "Server running, waiting for LiveKit credentials",
+                },
+            )
+            return
+
+        # Google OAuth 2.0 login endpoint
+        if parsed.path == "/auth/google/login":
+            qs = parse_qs(parsed.query)
+            user_id = qs.get("user_id", ["default"])[0].strip()
+            if not auth_manager.is_oauth_configured():
+                self._send_html(
+                    503,
+                    """<!DOCTYPE html><html><body style="font-family:sans-serif;background:#090b10;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+                    <div style="background:#131826;padding:30px;border-radius:16px;max-width:480px;text-align:center;border:1px solid rgba(255,255,255,0.1);">
+                      <h2>Google OAuth Not Configured</h2>
+                      <p style="color:#9ca3af;font-size:14px;line-height:1.6;">
+                        To enable per-user Gmail OAuth 2.0, please configure <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> in your <code>.env</code> file or Railway Variables.
+                      </p>
+                    </div></body></html>""",
+                )
+                return
+
+            redirect_uri = self._resolve_redirect_uri()
+            try:
+                auth_url = auth_manager.get_authorization_url(user_id=user_id, redirect_uri=redirect_uri)
+                self.send_response(302)
+                self._set_cors_headers()
+                self.send_header("Location", auth_url)
+                self.end_headers()
+            except Exception as e:
+                logger.error(f"Error starting Google OAuth: {e}")
+                self._send_html(500, f"<h3>Failed to start Google OAuth</h3><p>{str(e)}</p>")
+            return
+
+        # Google OAuth 2.0 callback endpoint
+        if parsed.path == "/auth/google/callback":
+            qs = parse_qs(parsed.query)
+            code = qs.get("code", [None])[0]
+            state = qs.get("state", ["default"])[0]
+            error = qs.get("error", [None])[0]
+
+            if error:
+                self._send_html(400, f"<h3>Google Authorization Denied</h3><p>{error}</p>")
+                return
+            if not code:
+                self._send_html(400, "<h3>Missing authorization code from Google</h3>")
+                return
+
+            redirect_uri = self._resolve_redirect_uri()
+            try:
+                token_data = auth_manager.exchange_code_for_token(code=code, redirect_uri=redirect_uri, user_id=state)
+                email_addr = token_data.get("email", "your account")
+                self._send_html(
+                    200,
+                    f"""<!DOCTYPE html>
+                    <html>
+                    <head>
+                      <title>Google Connected</title>
+                      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                      <style>
+                        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #090b10; color: #f3f4f6; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; }}
+                        .card {{ background: rgba(18, 22, 34, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; padding: 36px 28px; max-width: 440px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }}
+                        .badge {{ width: 56px; height: 56px; border-radius: 50%; background: #10b981; color: white; display: flex; align-items: center; justify-content: center; font-size: 28px; margin: 0 auto 20px; }}
+                        h2 {{ margin-bottom: 8px; font-size: 22px; }}
+                        p {{ color: #9ca3af; font-size: 14px; line-height: 1.5; margin-bottom: 24px; }}
+                        .btn {{ display: inline-block; background: #6366f1; color: white; border: none; padding: 12px 24px; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none; }}
+                      </style>
+                    </head>
+                    <body>
+                      <div class="card">
+                        <div class="badge">&#10003;</div>
+                        <h2>Google Account Connected!</h2>
+                        <p>Successfully authorized as <strong>{email_addr}</strong>.<br><br>Your Voice AI Assistant is now connected to your Gmail and Calendar.</p>
+                        <button class="btn" onclick="window.close(); if(window.opener){{window.opener.postMessage('google_auth_success', '*');}}">Close &amp; Return to Assistant</button>
+                      </div>
+                    </body>
+                    </html>""",
+                )
+            except Exception as e:
+                logger.error(f"Callback error: {e}", exc_info=True)
+                self._send_html(500, f"<h3>Failed to exchange Google token</h3><p>{str(e)}</p>")
+            return
+
+        # Google OAuth status check API
+        if parsed.path == "/api/auth/google/status":
+            qs = parse_qs(parsed.query)
+            user_id = qs.get("user_id", ["default"])[0].strip()
+            configured = auth_manager.is_oauth_configured()
+            authenticated = auth_manager.is_user_authenticated(user_id) if configured else False
+            user_info = auth_manager.get_user_info(user_id) if authenticated else None
+            self._send_json(
+                200,
+                {
+                    "oauth_configured": configured,
+                    "authenticated": authenticated,
+                    "user_id": user_id,
+                    "email": user_info.get("email") if user_info else None,
+                    "login_url": f"/auth/google/login?user_id={user_id}" if configured else None,
                 },
             )
             return

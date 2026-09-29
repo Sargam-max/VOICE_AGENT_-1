@@ -385,7 +385,28 @@
         <input id="roomInput" type="text" placeholder="voice-agent-room" value="voice-agent-room" />
       </div>
 
-      <button id="connectBtn" class="btn btn-primary" style="margin-top: 8px;">
+      <!-- Per-User Google OAuth 2.0 Integration Card -->
+      <div id="googleAuthCard" style="margin-bottom: 16px; padding: 12px 14px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <svg width="18" height="18" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+            </svg>
+          </div>
+          <div style="min-width: 0;">
+            <div style="font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Gmail &amp; Calendar</div>
+            <div id="googleStatusText" style="font-size: 11px; color: #9ca3af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Checking connection...</div>
+          </div>
+        </div>
+        <button id="googleAuthBtn" type="button" onclick="handleGoogleAuthClick()" style="background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.4); color: #a5b4fc; padding: 6px 12px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.2s;">
+          Connect
+        </button>
+      </div>
+
+      <button id="connectBtn" class="btn btn-primary" style="margin-top: 4px;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
         </svg>
@@ -467,10 +488,104 @@
     const leaveBtn = document.getElementById('leaveBtn');
     const transcriptBox = document.getElementById('transcriptBox');
     const textInput = document.getElementById('textInput');
+    const googleStatusText = document.getElementById('googleStatusText');
+    const googleAuthBtn = document.getElementById('googleAuthBtn');
+    const identityInput = document.getElementById('identityInput');
 
     let room = null;
     let micEnabled = true;
     let audioElements = [];
+    let audioContext = null;
+    let micAnalyser = null;
+    let vuAnimationId = null;
+    let segmentElements = new Map();
+    let isGoogleConnected = false;
+    let authPopup = null;
+
+    function getActiveUserId() {
+      const raw = (identityInput && identityInput.value.trim()) ? identityInput.value.trim() : 'Guest';
+      const clean = raw.toLowerCase().replace(/[^a-z0-9_-]/g, '_') || 'guest';
+      const storageKey = 'va_uid_' + clean;
+      let uid = localStorage.getItem(storageKey);
+      if (!uid) {
+        uid = `${clean}_${Math.random().toString(36).substring(2, 8)}`;
+        localStorage.setItem(storageKey, uid);
+      }
+      return uid;
+    }
+
+    async function checkGoogleAuthStatus() {
+      if (!googleStatusText || !googleAuthBtn) return;
+      const userId = getActiveUserId();
+      try {
+        const res = await fetch(`/api/auth/google/status?user_id=${encodeURIComponent(userId)}`);
+        const data = await res.json();
+        if (!data.oauth_configured) {
+          googleStatusText.textContent = 'Google OAuth not configured on server';
+          googleStatusText.style.color = '#9ca3af';
+          googleAuthBtn.textContent = 'Not Set';
+          googleAuthBtn.disabled = true;
+          googleAuthBtn.style.opacity = '0.5';
+          googleAuthBtn.style.cursor = 'not-allowed';
+          isGoogleConnected = false;
+          return;
+        }
+
+        googleAuthBtn.disabled = false;
+        googleAuthBtn.style.opacity = '1';
+        googleAuthBtn.style.cursor = 'pointer';
+
+        if (data.authenticated) {
+          isGoogleConnected = true;
+          googleStatusText.innerHTML = `<span style="color:#34d399;font-weight:600;">&#10003; Connected:</span> ${escapeHtml(data.email || 'Google Account')}`;
+          googleStatusText.style.color = '#e5e7eb';
+          googleAuthBtn.textContent = 'Disconnect';
+          googleAuthBtn.style.background = 'rgba(239, 68, 68, 0.15)';
+          googleAuthBtn.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+          googleAuthBtn.style.color = '#fca5a5';
+        } else {
+          isGoogleConnected = false;
+          googleStatusText.textContent = 'Not connected. Connect to access Gmail & Calendar.';
+          googleStatusText.style.color = '#9ca3af';
+          googleAuthBtn.textContent = 'Connect';
+          googleAuthBtn.style.background = 'rgba(99, 102, 241, 0.15)';
+          googleAuthBtn.style.borderColor = 'rgba(99, 102, 241, 0.4)';
+          googleAuthBtn.style.color = '#a5b4fc';
+        }
+      } catch (err) {
+        console.warn('Could not check Google Auth status:', err);
+      }
+    }
+
+    async function handleGoogleAuthClick() {
+      const userId = getActiveUserId();
+      if (isGoogleConnected) {
+        if (confirm('Disconnect your Google Account from this voice assistant?')) {
+          googleAuthBtn.disabled = true;
+          googleAuthBtn.textContent = 'Disconnecting...';
+          try {
+            await fetch(`/api/auth/google/disconnect?user_id=${encodeURIComponent(userId)}`, { method: 'POST' });
+          } catch (e) {
+            console.error('Disconnect failed:', e);
+          }
+          await checkGoogleAuthStatus();
+        }
+      } else {
+        const popupWidth = 520;
+        const popupHeight = 650;
+        const left = window.screenX + Math.max(0, (window.outerWidth - popupWidth) / 2);
+        const top = window.screenY + Math.max(0, (window.outerHeight - popupHeight) / 2);
+        const url = `/auth/google/login?user_id=${encodeURIComponent(userId)}`;
+        authPopup = window.open(
+          url,
+          'GoogleAuthPopup',
+          `width=${popupWidth},height=${popupHeight},left=${left},top=${top},status=no,toolbar=no,menubar=no`
+        );
+        if (!authPopup || authPopup.closed || typeof authPopup.closed === 'undefined') {
+          window.open(url, '_blank');
+        }
+      }
+    }
     let audioContext = null;
     let micAnalyser = null;
     let vuAnimationId = null;
@@ -566,7 +681,8 @@
 
     async function connect() {
       clearError();
-      const identity = document.getElementById('identityInput').value.trim() || 'Guest';
+      const displayName = (identityInput && identityInput.value.trim()) ? identityInput.value.trim() : 'Guest';
+      const userId = getActiveUserId();
       const roomName = document.getElementById('roomInput').value.trim() || 'voice-agent-room';
 
       connectBtn.disabled = true;
@@ -574,7 +690,7 @@
 
       let tokenData;
       try {
-        const res = await fetch(`/api/token?identity=${encodeURIComponent(identity)}&name=${encodeURIComponent(identity)}&room=${encodeURIComponent(roomName)}`);
+        const res = await fetch(`/api/token?identity=${encodeURIComponent(userId)}&name=${encodeURIComponent(displayName)}&room=${encodeURIComponent(roomName)}`);
         tokenData = await res.json();
         if (!res.ok) throw new Error(tokenData.error || `HTTP ${res.status}`);
       } catch (err) {
@@ -785,6 +901,27 @@
     connectBtn.addEventListener('click', connect);
     muteBtn.addEventListener('click', toggleMute);
     leaveBtn.addEventListener('click', leaveCall);
+
+    window.addEventListener('message', (event) => {
+      if (event.data === 'google_auth_success') {
+        if (authPopup && !authPopup.closed) {
+          authPopup.close();
+        }
+        checkGoogleAuthStatus();
+      }
+    });
+
+    window.addEventListener('focus', () => {
+      checkGoogleAuthStatus();
+    });
+
+    if (identityInput) {
+      identityInput.addEventListener('change', checkGoogleAuthStatus);
+      identityInput.addEventListener('blur', checkGoogleAuthStatus);
+    }
+
+    // Initial check on page load
+    checkGoogleAuthStatus();
   </script>
 </body>
 </html>
