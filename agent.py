@@ -1,5 +1,9 @@
-import os
+import asyncio
+import json
 import logging
+import os
+import sys
+from pathlib import Path
 from dotenv import load_dotenv
 
 # Set environment variables to prevent OpenBLAS memory allocation crashes on Windows
@@ -9,10 +13,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 # Load environment variables FIRST before importing LiveKit
 load_dotenv()
 
-import sys
-from pathlib import Path
-
-from livekit import agents
+from livekit import agents, rtc
 from livekit.agents import (
     Agent,
     AgentSession,
@@ -37,14 +38,21 @@ class Assistant(Agent):
     def __init__(self, tools: list | None = None) -> None:
         super().__init__(
             instructions=(
-                "You are a friendly, intelligent, and natural real-time voice AI assistant. "
+                "You are voiceai, a friendly, intelligent, and natural real-time voice and text AI assistant. "
                 "You are equipped with powerful real-time tools via Model Context Protocol (MCP):\n"
                 "1. Web Search & Breaking News (search_web, search_news): Query live web facts, weather, news, documentation.\n"
                 "2. Calendar Scheduling & Events (calendar_list_events, calendar_create_event, calendar_delete_event): Check schedule, create appointments, delete events.\n"
-                "3. Gmail Integration (gmail_read_inbox, gmail_search_emails, gmail_send_email, gmail_auth_status): Read emails, search messages, or compose & send emails via user's Google OAuth 2.0.\n"
-                "Whenever the user asks a question requiring current information, scheduling, calendar checks, or email actions, ALWAYS call your tools! "
-                "Keep your answers concise, direct, and conversational since you are speaking out loud. "
-                "Avoid markdown formatting, bulleted lists, code blocks, or special symbols in your speech."
+                "3. Gmail Integration (gmail_read_inbox, gmail_search_emails, gmail_send_email, gmail_auth_status): Read emails, search messages, or compose & send emails via user's Google OAuth 2.0.\n\n"
+                "CRITICAL EMAIL INSTRUCTIONS:\n"
+                "- When the user asks to write, draft, or send an email to someone (e.g. 'write email to akash gupta 23mc3005@rgipt.ac.in greeting him happy journey'):\n"
+                "  1. Extract the recipient email address (e.g. '23mc3005@rgipt.ac.in').\n"
+                "  2. Autonomously craft an appropriate, concise subject (e.g. 'Wishing you a Safe and Happy Journey!').\n"
+                "  3. Autonomously draft a friendly, well-written message body fitting the user's intent.\n"
+                "  4. Immediately execute the `gmail_send_email` tool with `to_email`, `subject`, and `body`.\n"
+                "  5. In your spoken reply, announce clearly: 'I have sent the email to [recipient] with the subject [subject]!'\n"
+                "- If the user asks to read, list, or check recent emails, call `gmail_read_inbox` or `gmail_search_emails` and summarize the results.\n"
+                "- Whenever the user asks a question requiring current information, scheduling, calendar checks, or email actions, ALWAYS call your tools!\n"
+                "- Keep your spoken answers concise, direct, and conversational. Avoid markdown formatting, bulleted lists, or raw code in speech."
             ),
             tools=tools or [],
         )
@@ -94,6 +102,29 @@ async def entrypoint(ctx: JobContext):
             ),
         ),
     )
+
+    # Listen for typed chat messages sent from the web text input
+    @ctx.room.on("data_received")
+    def on_data_received(dp: rtc.DataPacket):
+        try:
+            raw_text = dp.data.decode("utf-8", errors="ignore").strip()
+            if not raw_text:
+                return
+            text = ""
+            try:
+                parsed = json.loads(raw_text)
+                if isinstance(parsed, dict):
+                    text = parsed.get("text") or parsed.get("message") or ""
+                elif isinstance(parsed, str):
+                    text = parsed
+            except Exception:
+                text = raw_text
+
+            if text:
+                logger.info(f"Received typed text message from user: '{text}'")
+                asyncio.create_task(session.generate_reply(user_input=text))
+        except Exception as e:
+            logger.error(f"Error handling data_received: {e}", exc_info=True)
 
     display_name = participant.name or participant.identity or "there"
     is_google_connected = auth_manager.is_user_authenticated(user_id)

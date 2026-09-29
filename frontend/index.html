@@ -1016,11 +1016,9 @@
 
       try {
         const payload = new TextEncoder().encode(JSON.stringify({ type: 'chat', text: text }));
-        // Try LiveKit Chat method, fallback to data publish on topic 'lk.chat'
+        await room.localParticipant.publishData(payload, { reliable: true });
         if (room.localParticipant.sendChatMessage) {
-          await room.localParticipant.sendChatMessage(text);
-        } else {
-          await room.localParticipant.publishData(payload, { reliable: true, topic: 'lk.chat' });
+          try { await room.localParticipant.sendChatMessage(text); } catch (e) {}
         }
       } catch (err) {
         console.error('Failed to send text message:', err);
