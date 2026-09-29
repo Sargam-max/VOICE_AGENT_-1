@@ -828,8 +828,8 @@
     async function connect() {
       clearError();
       const displayName = (identityInput && identityInput.value.trim()) ? identityInput.value.trim() : 'Guest';
-      const userId = getActiveUserId();
-      const roomName = document.getElementById('roomInput').value.trim() || 'voice-agent-room';
+      const rawRoom = (document.getElementById('roomInput') && document.getElementById('roomInput').value.trim()) ? document.getElementById('roomInput').value.trim() : '';
+      const roomName = (rawRoom && rawRoom !== 'voice-agent-room') ? rawRoom : `room-${userId}`;
 
       connectBtn.disabled = true;
       connectBtn.textContent = 'Connecting...';
@@ -1063,6 +1063,11 @@
     if (identityInput) {
       identityInput.addEventListener('change', checkGoogleAuthStatus);
       identityInput.addEventListener('blur', checkGoogleAuthStatus);
+    }
+
+    const roomInput = document.getElementById('roomInput');
+    if (roomInput && (!roomInput.value || roomInput.value === 'voice-agent-room')) {
+      roomInput.value = 'room-' + getActiveUserId();
     }
 
     // Initial check on page load

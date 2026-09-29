@@ -298,7 +298,8 @@ class Handler(BaseHTTPRequestHandler):
             qs = parse_qs(parsed.query)
             identity = qs.get("identity", [f"user-{uuid.uuid4().hex[:8]}"])[0].strip()
             name = qs.get("name", [identity])[0].strip()
-            room = qs.get("room", ["voice-agent-room"])[0].strip()
+            requested_room = qs.get("room", [""])[0].strip()
+            room = requested_room if (requested_room and requested_room != "voice-agent-room") else f"room-{identity}"
             requested_agent = qs.get("agent", [LIVEKIT_AGENT_NAME])[0].strip()
 
             try:
