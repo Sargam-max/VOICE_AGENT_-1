@@ -12,6 +12,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import socket
 import sys
 import uuid
@@ -119,6 +120,48 @@ class Handler(BaseHTTPRequestHandler):
             user_id = qs.get("user_id", ["default"])[0].strip()
             success = auth_manager.revoke_user(user_id)
             self._send_json(200, {"success": success, "user_id": user_id, "status": "disconnected"})
+            return
+
+        if parsed.path == "/api/auth/google/config":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                raw_body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
+                data = json.loads(raw_body)
+                client_id = data.get("client_id", "").strip()
+                client_secret = data.get("client_secret", "").strip()
+                if not client_id or not client_secret:
+                    self._send_json(400, {"error": "Both client_id and client_secret are required."})
+                    return
+
+                # Update live in memory
+                auth_manager.client_id = client_id
+                auth_manager.client_secret = client_secret
+                os.environ["GOOGLE_CLIENT_ID"] = client_id
+                os.environ["GOOGLE_CLIENT_SECRET"] = client_secret
+
+                # Persist to local .env if exists
+                env_path = Path(__file__).parent / ".env"
+                if env_path.exists():
+                    env_text = env_path.read_text(encoding="utf-8")
+                    if "GOOGLE_CLIENT_ID=" in env_text:
+                        env_text = re.sub(r"GOOGLE_CLIENT_ID=.*", f"GOOGLE_CLIENT_ID={client_id}", env_text)
+                    else:
+                        env_text += f"\nGOOGLE_CLIENT_ID={client_id}\n"
+                    if "GOOGLE_CLIENT_SECRET=" in env_text:
+                        env_text = re.sub(r"GOOGLE_CLIENT_SECRET=.*", f"GOOGLE_CLIENT_SECRET={client_secret}", env_text)
+                    else:
+                        env_text += f"GOOGLE_CLIENT_SECRET={client_secret}\n"
+                    env_path.write_text(env_text, encoding="utf-8")
+
+                self._send_json(200, {
+                    "success": True,
+                    "oauth_configured": True,
+                    "message": "Google OAuth credentials updated successfully."
+                })
+                logger.info("Updated Google OAuth credentials from API.")
+            except Exception as e:
+                logger.error(f"Failed to update Google OAuth config: {e}")
+                self._send_json(500, {"error": str(e)})
             return
         self.send_error(404, "Not found")
 

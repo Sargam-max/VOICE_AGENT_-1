@@ -395,9 +395,15 @@
           </div>
         </div>
         <div>
-          <strong style="color: #fff;">5. Paste Keys into .env (or Railway Variables):</strong><br>
-          <pre style="background: #090c13; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); font-size: 12px; color: #a7f3d0; margin-top: 6px; overflow-x: auto; white-space: pre-wrap;">GOOGLE_CLIENT_ID=your_id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your_secret</pre>
+          <strong style="color: #fff;">5. Save Credentials &amp; Enable Autonomous Sign-In:</strong><br>
+          <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+            <input id="cfgClientId" type="text" placeholder="Paste Client ID (e.g. 123456...apps.googleusercontent.com)" style="width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: #0c0f17; color: #fff; font-size: 12px;" />
+            <input id="cfgClientSecret" type="password" placeholder="Paste Client Secret (e.g. GOCSPX-...)" style="width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: #0c0f17; color: #fff; font-size: 12px;" />
+            <div id="cfgError" style="font-size: 12px; color: #f87171; display: none;"></div>
+            <button id="saveConfigBtn" onclick="saveGoogleConfig()" style="background: linear-gradient(135deg, #4f46e5, #6366f1); border: none; color: white; padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s;">
+              Save &amp; Connect Google Account
+            </button>
+          </div>
         </div>
       </div>
 
@@ -595,6 +601,47 @@ GOOGLE_CLIENT_SECRET=your_secret</pre>
             setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
           }
         });
+      }
+    }
+
+    async function saveGoogleConfig() {
+      const clientId = document.getElementById('cfgClientId').value.trim();
+      const clientSecret = document.getElementById('cfgClientSecret').value.trim();
+      const errBox = document.getElementById('cfgError');
+      const btn = document.getElementById('saveConfigBtn');
+
+      if (!clientId || !clientSecret) {
+        if (errBox) {
+          errBox.textContent = 'Please enter both Client ID and Client Secret.';
+          errBox.style.display = 'block';
+        }
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Saving & Starting Google Sign-In...';
+      if (errBox) errBox.style.display = 'none';
+
+      try {
+        const res = await fetch('/api/auth/google/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: clientId, client_secret: clientSecret })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to save');
+
+        closeOAuthModal();
+        await checkGoogleAuthStatus();
+        handleGoogleAuthClick();
+      } catch (err) {
+        if (errBox) {
+          errBox.textContent = 'Error: ' + err.message;
+          errBox.style.display = 'block';
+        }
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save & Connect Google Account';
       }
     }
 
