@@ -500,7 +500,15 @@
     let vuAnimationId = null;
     let segmentElements = new Map();
     let isGoogleConnected = false;
+    let isOAuthConfigured = false;
     let authPopup = null;
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/[&<>'"]/g, t => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      }[t] || t));
+    }
 
     function getActiveUserId() {
       const raw = (identityInput && identityInput.value.trim()) ? identityInput.value.trim() : 'Guest';
@@ -520,10 +528,11 @@
       try {
         const res = await fetch(`/api/auth/google/status?user_id=${encodeURIComponent(userId)}`);
         const data = await res.json();
+        isOAuthConfigured = Boolean(data.oauth_configured);
         if (!data.oauth_configured) {
           googleStatusText.textContent = 'Google OAuth not configured on server';
           googleStatusText.style.color = '#9ca3af';
-          googleAuthBtn.textContent = 'Not Set';
+          googleAuthBtn.textContent = 'Not Configured';
           googleAuthBtn.disabled = true;
           googleAuthBtn.style.opacity = '0.5';
           googleAuthBtn.style.cursor = 'not-allowed';
@@ -558,6 +567,10 @@
     }
 
     async function handleGoogleAuthClick() {
+      if (!isOAuthConfigured && !isGoogleConnected) {
+        alert("Google OAuth is not configured on the server yet. You can still use voice chat, web search, and calendar! To enable Gmail, set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Railway variables.");
+        return;
+      }
       const userId = getActiveUserId();
       if (isGoogleConnected) {
         if (confirm('Disconnect your Google Account from this voice assistant?')) {
@@ -586,10 +599,6 @@
         }
       }
     }
-    let audioContext = null;
-    let micAnalyser = null;
-    let vuAnimationId = null;
-    let segmentElements = new Map();
 
     function showError(msg) {
       errorBox.textContent = msg;
@@ -630,12 +639,6 @@
         if (isFinal) el.classList.remove('interim');
       }
       transcriptBox.scrollTop = transcriptBox.scrollHeight;
-    }
-
-    function escapeHtml(str) {
-      return str.replace(/[&<>'"]/g, t => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
-      }[t] || t));
     }
 
     function attachAudioTrack(track) {
