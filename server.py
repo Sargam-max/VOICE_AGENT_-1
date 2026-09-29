@@ -324,8 +324,13 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         # Static file serving for the frontend
-        rel_path = parsed.path.lstrip("/") or "index.html"
-        file_path = (FRONTEND_DIR / rel_path).resolve()
+        if parsed.path in ("/privacy", "/privacy.html"):
+            file_path = (FRONTEND_DIR / "privacy.html").resolve()
+        elif parsed.path in ("/terms", "/terms.html"):
+            file_path = (FRONTEND_DIR / "terms.html").resolve()
+        else:
+            rel_path = parsed.path.lstrip("/") or "index.html"
+            file_path = (FRONTEND_DIR / rel_path).resolve()
 
         # Prevent path traversal outside frontend/
         try:
