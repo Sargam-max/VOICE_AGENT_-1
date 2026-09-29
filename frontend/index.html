@@ -362,6 +362,51 @@
   </style>
 </head>
 <body>
+  <!-- Google OAuth Setup Modal -->
+  <div id="oauthModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(6px); z-index: 999; align-items: center; justify-content: center; padding: 20px;">
+    <div style="background: #141824; border: 1px solid rgba(255,255,255,0.12); border-radius: 18px; max-width: 520px; width: 100%; padding: 24px; box-shadow: 0 25px 50px rgba(0,0,0,0.6); position: relative; max-height: 90vh; overflow-y: auto;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+        <h2 style="font-size: 17px; font-weight: 600; margin: 0; color: #fff;">Google OAuth 2.0 Setup Guide</h2>
+        <button onclick="closeOAuthModal()" style="background: none; border: none; color: #9ca3af; font-size: 22px; cursor: pointer; padding: 4px; line-height: 1;">&times;</button>
+      </div>
+
+      <p style="font-size: 13px; color: #9ca3af; line-height: 1.5; margin-bottom: 16px;">
+        To connect your personal Gmail and Calendar, create free OAuth credentials in Google Cloud Console and paste them into your <code>.env</code> file (or Railway Variables).
+      </p>
+
+      <div style="font-size: 13px; line-height: 1.6; color: #d1d5db; display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+        <div>
+          <strong style="color: #fff;">1. Open Google Cloud Console:</strong><br>
+          Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color: #818cf8; text-decoration: underline;">console.cloud.google.com/apis/credentials</a> and select or create a project.
+        </div>
+        <div>
+          <strong style="color: #fff;">2. Enable the Gmail API:</strong><br>
+          In <em>APIs &amp; Services &gt; Library</em>, search for <strong>Gmail API</strong> and click <strong>Enable</strong>.
+        </div>
+        <div>
+          <strong style="color: #fff;">3. Create OAuth Client ID:</strong><br>
+          Go to <em>Credentials &gt; Create Credentials &gt; OAuth client ID</em> &gt; Application type: <strong>Web application</strong>.
+        </div>
+        <div>
+          <strong style="color: #fff;">4. Add Authorized Redirect URI:</strong><br>
+          <div style="display: flex; gap: 6px; margin-top: 6px;">
+            <input id="redirectUriInput" type="text" readonly value="" style="flex: 1; padding: 7px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: #0c0f17; color: #93c5fd; font-size: 12px; font-family: monospace;" />
+            <button id="copyUriBtn" onclick="copyRedirectUri()" style="background: #4f46e5; border: none; color: white; padding: 7px 14px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 600;">Copy</button>
+          </div>
+        </div>
+        <div>
+          <strong style="color: #fff;">5. Paste Keys into .env (or Railway Variables):</strong><br>
+          <pre style="background: #090c13; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); font-size: 12px; color: #a7f3d0; margin-top: 6px; overflow-x: auto; white-space: pre-wrap;">GOOGLE_CLIENT_ID=your_id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your_secret</pre>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button onclick="closeOAuthModal()" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;">Close</button>
+      </div>
+    </div>
+  </div>
+
   <div class="app-container">
     <div class="header">
       <h1 class="title">Voice AI Agent</h1>
@@ -522,6 +567,37 @@
       return uid;
     }
 
+    function openOAuthModal() {
+      const modal = document.getElementById('oauthModal');
+      const uriInput = document.getElementById('redirectUriInput');
+      if (uriInput) {
+        uriInput.value = window.location.origin + '/auth/google/callback';
+      }
+      if (modal) {
+        modal.style.display = 'flex';
+      }
+    }
+
+    function closeOAuthModal() {
+      const modal = document.getElementById('oauthModal');
+      if (modal) {
+        modal.style.display = 'none';
+      }
+    }
+
+    function copyRedirectUri() {
+      const uriInput = document.getElementById('redirectUriInput');
+      const btn = document.getElementById('copyUriBtn');
+      if (uriInput) {
+        navigator.clipboard.writeText(uriInput.value).then(() => {
+          if (btn) {
+            btn.textContent = 'Copied!';
+            setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+          }
+        });
+      }
+    }
+
     async function checkGoogleAuthStatus() {
       if (!googleStatusText || !googleAuthBtn) return;
       const userId = getActiveUserId();
@@ -532,10 +608,13 @@
         if (!data.oauth_configured) {
           googleStatusText.textContent = 'Google OAuth not configured on server';
           googleStatusText.style.color = '#9ca3af';
-          googleAuthBtn.textContent = 'Not Configured';
-          googleAuthBtn.disabled = true;
-          googleAuthBtn.style.opacity = '0.5';
-          googleAuthBtn.style.cursor = 'not-allowed';
+          googleAuthBtn.textContent = 'Setup';
+          googleAuthBtn.disabled = false;
+          googleAuthBtn.style.opacity = '1';
+          googleAuthBtn.style.cursor = 'pointer';
+          googleAuthBtn.style.background = 'rgba(234, 179, 8, 0.15)';
+          googleAuthBtn.style.borderColor = 'rgba(234, 179, 8, 0.4)';
+          googleAuthBtn.style.color = '#fde047';
           isGoogleConnected = false;
           return;
         }
@@ -568,7 +647,7 @@
 
     async function handleGoogleAuthClick() {
       if (!isOAuthConfigured && !isGoogleConnected) {
-        alert("Google OAuth is not configured on the server yet. You can still use voice chat, web search, and calendar! To enable Gmail, set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Railway variables.");
+        openOAuthModal();
         return;
       }
       const userId = getActiveUserId();
