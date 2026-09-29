@@ -142,6 +142,10 @@ async def entrypoint(ctx: JobContext):
         logger.warning(f"Could not deliver initial greeting: {e}")
 
 
+def _always_available(*args, **kwargs) -> float:
+    return 0.0
+
+
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
@@ -157,5 +161,7 @@ if __name__ == "__main__":
             num_idle_processes=0,
             job_executor_type=JobExecutorType.THREAD,
             port=worker_port,
+            load_threshold=100.0,
+            load_fnc=_always_available,
         )
     )
