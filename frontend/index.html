@@ -957,8 +957,9 @@
           const localTrackPub = Array.from(room.localParticipant.trackPublications.values()).find(
             p => p.track && p.track.kind === Track.Kind.Audio
           );
-          if (localTrackPub && localTrackPub.track && localTrackPub.track.mediaStream) {
-            setupMicAnalyser(localTrackPub.track.mediaStream);
+          if (localTrackPub && localTrackPub.track) {
+            const stream = localTrackPub.track.mediaStream || (localTrackPub.track.mediaStreamTrack ? new MediaStream([localTrackPub.track.mediaStreamTrack]) : null);
+            if (stream) setupMicAnalyser(stream);
           }
         } catch (micErr) {
           showError('Microphone permission blocked: ' + micErr.message + '. Please allow microphone access in your browser address bar.');
