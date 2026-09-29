@@ -3,69 +3,121 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Privacy Policy - VoiceAI</title>
+  <title>Privacy Policy - voiceai</title>
   <style>
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       background: #090b10;
       color: #e5e7eb;
       margin: 0;
       padding: 40px 20px;
-      line-height: 1.6;
+      line-height: 1.7;
     }
     .container {
-      max-width: 760px;
+      max-width: 820px;
       margin: 0 auto;
       background: #111520;
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 16px;
-      padding: 36px 32px;
+      padding: 40px 36px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
     }
-    h1 { color: #fff; margin-top: 0; font-size: 26px; }
-    h2 { color: #93c5fd; font-size: 18px; margin-top: 24px; }
+    h1 { color: #ffffff; margin-top: 0; font-size: 28px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 16px; }
+    h2 { color: #93c5fd; font-size: 20px; margin-top: 28px; margin-bottom: 10px; }
+    h3 { color: #c7d2fe; font-size: 16px; margin-top: 20px; }
     p, li { color: #9ca3af; font-size: 14px; }
-    ul { padding-left: 20px; }
+    ul { padding-left: 24px; }
     a { color: #818cf8; text-decoration: none; }
     a:hover { text-decoration: underline; }
     .back-btn {
       display: inline-block;
-      margin-bottom: 20px;
+      margin-bottom: 24px;
       color: #818cf8;
       font-size: 14px;
       font-weight: 500;
     }
+    .highlight-box {
+      background: rgba(99, 102, 241, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin: 20px 0;
+    }
+    .highlight-box p { color: #e0e7ff; margin: 0; font-size: 13px; line-height: 1.6; }
   </style>
 </head>
 <body>
   <div class="container">
-    <a href="/" class="back-btn">&larr; Back to Voice Assistant</a>
-    <h1>Privacy Policy</h1>
-    <p>Last updated: September 29, 2026</p>
+    <a href="/" class="back-btn">&larr; Back to voiceai</a>
+    <h1>Privacy Policy for voiceai</h1>
+    <p><em>Effective Date: September 29, 2026</em></p>
 
-    <h2>1. Introduction</h2>
-    <p>Welcome to VoiceAI ("we", "our", or "the application"). We value your privacy and are committed to protecting your personal information. This Privacy Policy explains how our voice assistant accesses, uses, and safeguards information when you connect your Google Account.</p>
+    <div class="highlight-box">
+      <p><strong>Summary:</strong> <strong>voiceai</strong> is an autonomous conversational voice assistant. We access Google user data (Gmail &amp; Google Calendar) strictly and solely to execute real-time voice commands initiated by the user. We never sell your personal data, never share your emails or calendar entries with third parties, and never use your Google user data to train generalized AI/ML models.</p>
+    </div>
 
-    <h2>2. Google User Data Access & Usage</h2>
-    <p>When you explicitly grant access to VoiceAI via Google OAuth 2.0, our assistant requests limited permissions to assist you:</p>
+    <h2>1. About voiceai</h2>
+    <p>voiceai ("the Application", "we", "us", or "our") is a real-time conversational artificial intelligence assistant developed to help individuals manage everyday communication and scheduling tasks through natural voice interactions. You can access voiceai at <a href="https://voiceagent-1-production.up.railway.app">https://voiceagent-1-production.up.railway.app</a>.</p>
+
+    <h2>2. Information We Collect and Access</h2>
+    <p>voiceai operates on a principle of minimal data collection. We only access the minimum necessary data to fulfill user-requested voice commands:</p>
     <ul>
-      <li><strong>Gmail API:</strong> Used exclusively to search, read, and compose email messages when instructed by your voice commands (e.g., "Read my latest emails" or "Send an email").</li>
-      <li><strong>Google Calendar:</strong> Used to check schedule events and create meetings per your verbal requests.</li>
-      <li><strong>Basic Profile:</strong> Used to display your authenticated email address on the connection status badge.</li>
+      <li><strong>Google Account Information:</strong> When you connect your account via Google OAuth 2.0, we obtain your primary email address to authenticate your session and show your connection status.</li>
+      <li><strong>Gmail Data (via Google Gmail API):</strong> With your explicit consent, we access the following scopes:
+        <ul>
+          <li><code>https://www.googleapis.com/auth/gmail.readonly</code>: To search, retrieve, and read the contents of recent emails when you verbally ask (e.g., "What are my unread emails?").</li>
+          <li><code>https://www.googleapis.com/auth/gmail.send</code>: To compose and send email messages on your behalf when you verbally request (e.g., "Send an email to John saying...").</li>
+        </ul>
+      </li>
+      <li><strong>Google Calendar Data:</strong> To read your upcoming schedule or create calendar events when explicitly asked via voice.</li>
+      <li><strong>Temporary Voice Audio:</strong> Live audio captured by your microphone is streamed in real-time over WebRTC for immediate speech-to-text processing and assistant interaction. Audio streams are processed in memory and are not permanently archived.</li>
     </ul>
 
-    <h2>3. Data Storage & Sharing</h2>
-    <p>VoiceAI adheres to the <strong>Google API Services User Data Policy</strong>, including the Limited Use requirements:</p>
+    <h2>3. How We Use Your Google User Data</h2>
+    <p>Any Google user data accessed by voiceai is used strictly for user-facing features:</p>
     <ul>
-      <li>Your data is never sold, leased, or rented to any third parties.</li>
-      <li>We do not use your email or calendar contents for advertising or training general machine learning models.</li>
-      <li>Tokens are stored securely in local server memory / encrypted per-user storage.</li>
+      <li>To convert spoken queries into actions (e.g., retrieving recent message subjects, summarizing inbox threads).</li>
+      <li>To draft and transmit email communications you have explicitly instructed the assistant to send.</li>
+      <li>To display active connectivity status on your personalized user dashboard.</li>
     </ul>
 
-    <h2>4. Revoking Access</h2>
-    <p>You can disconnect your Google account and revoke access at any time by clicking the "Disconnect" button on the assistant interface, or via your <a href="https://myaccount.google.com/permissions" target="_blank">Google Account Security Settings</a>.</p>
+    <h2>4. Google API Services User Data Policy Compliance (Limited Use Disclosure)</h2>
+    <p>voiceai strictly adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements:</p>
+    <ul>
+      <li>We do <strong>NOT</strong> transfer or disclose Google user data to third parties, advertising platforms, data brokers, or information resellers.</li>
+      <li>We do <strong>NOT</strong> use Google user data for serving advertisements, retargeting, or interest-based profiling.</li>
+      <li>We do <strong>NOT</strong> use or allow humans to read your private email content, except where required by applicable law or when you have explicitly requested technical assistance and granted express permission.</li>
+      <li>We do <strong>NOT</strong> use your Google user data to train or fine-tune general, foundation, or commercial AI/ML models.</li>
+    </ul>
 
-    <h2>5. Contact Us</h2>
-    <p>If you have any questions about this Privacy Policy, please contact us at: <a href="mailto:sargam688@gmail.com">sargam688@gmail.com</a>.</p>
+    <h2>5. Data Storage, Security & Retention</h2>
+    <p>We implement industry-standard administrative, physical, and technical safeguards to protect your personal data:</p>
+    <ul>
+      <li><strong>Secure OAuth Tokens:</strong> OAuth 2.0 access and refresh tokens are encrypted at rest and stored per unique session identifier.</li>
+      <li><strong>Transport Encryption:</strong> All communications between your client, our server, and Google APIs use Transport Layer Security (TLS 1.3 / HTTPS).</li>
+      <li><strong>Data Retention:</strong> Email and calendar data are processed Ephemerally in volatile memory during the active voice session. No permanent database stores copies of your inbox or personal emails.</li>
+    </ul>
+
+    <h2>6. How to Revoke Access & Delete Data</h2>
+    <p>You have full control over your Google connection at all times:</p>
+    <ul>
+      <li><strong>In-App Disconnect:</strong> Click the "Disconnect" button in the voiceai dashboard at any time to immediately delete stored tokens from memory and sever the connection.</li>
+      <li><strong>Google Security Settings:</strong> You can revoke voiceai's permissions directly at any time by visiting your <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">Google Account Third-Party Permissions</a> page.</li>
+    </ul>
+
+    <h2>7. Children's Privacy</h2>
+    <p>voiceai is not directed to individuals under the age of 13, and we do not knowingly collect personal information from children.</p>
+
+    <h2>8. Changes to This Privacy Policy</h2>
+    <p>We may update this Privacy Policy from time to time to reflect operational, legal, or regulatory changes. Any updates will be posted directly to this page with a revised effective date.</p>
+
+    <h2>9. Contact Us</h2>
+    <p>If you have any questions, concerns, or requests regarding this Privacy Policy or our data practices, please contact us at:</p>
+    <p>
+      <strong>voiceai Developer &amp; Data Protection Contact:</strong><br>
+      Email: <a href="mailto:sargam688@gmail.com">sargam688@gmail.com</a><br>
+      Application: voiceai (<a href="https://voiceagent-1-production.up.railway.app">https://voiceagent-1-production.up.railway.app</a>)
+    </p>
   </div>
 </body>
 </html>
