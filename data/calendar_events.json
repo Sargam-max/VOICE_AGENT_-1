@@ -1,0 +1,21 @@
+[
+  {
+    "id": "evt-101",
+    "title": "Welcome to Voice AI Assistant",
+    "date": "2026-09-29",
+    "start_time": "10:00 AM",
+    "end_time": "10:30 AM",
+    "description": "Onboarding session and feature exploration",
+    "location": "LiveKit Voice Room"
+  },
+  {
+    "id": "evt-707407",
+    "title": "Dentist appointment",
+    "date": "2026-09-30",
+    "start_time": "3:00 PM",
+    "end_time": "",
+    "description": "",
+    "location": "",
+    "created_at": "2026-09-29T00:41:47.407050"
+  }
+]

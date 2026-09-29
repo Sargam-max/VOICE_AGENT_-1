@@ -24,3 +24,6 @@ KMS/logs/*
 # Operating system artifacts
 .DS_Store
 Thumbs.db
+
+# Dynamic runtime data
+data/simulated_outbox.json

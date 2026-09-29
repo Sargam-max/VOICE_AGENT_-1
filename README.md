@@ -8,6 +8,7 @@ A fully functional, ultra-low-latency real-time voice AI assistant built on [Liv
 - **Turn Detection & Interruption**: LiveKit ML TurnDetector
 - **Noise Cancellation**: LiveKit BVC
 - **WebRTC Transport**: LiveKit Cloud
+- **Model Context Protocol (MCP)**: Native integration for free Web Search, Calendar scheduling, and Gmail
 - **Web Interface & Token Server**: Embedded Python HTTP server with CORS, health checks, and responsive UI
 
 ---
@@ -16,12 +17,16 @@ A fully functional, ultra-low-latency real-time voice AI assistant built on [Liv
 
 ```mermaid
 flowchart LR
-    User["Browser Client (Microphone & Speaker)"] <-->|"WebRTC Audio & Transcripts"| LK["LiveKit Cloud"]
+    User["Browser Client (Mic & Speaker)"] <-->|"WebRTC Audio & Transcripts"| LK["LiveKit Cloud"]
     LK <-->|"WebRTC Stream"| Agent["LiveKit Voice Agent (agent.py)"]
     Agent -->|"VAD & Turns"| Silero["Silero VAD + Turn Detector"]
     Agent <-->|"Streaming Audio"| AAI["AssemblyAI (STT)"]
     Agent <-->|"Conversational Context"| Gemini["Google Gemini 2.5 Flash (LLM)"]
     Agent <-->|"Fast Voice Synthesis"| Cartesia["Cartesia Sonic-3 (TTS)"]
+    Agent <-->|"Model Context Protocol"| MCP["MCP Server (mcp_server.py)"]
+    MCP -->|"100% Free Search"| WebSearch["Web & News Search (DuckDuckGo)"]
+    MCP -->|"Persistent & iCal"| Calendar["Calendar Scheduling"]
+    MCP -->|"SMTP / IMAP"| Gmail["Gmail Inbox & Sending"]
     User <-->|"HTTP / Token & UI"| Server["Web & Token Server (server.py)"]
 ```
 
@@ -90,6 +95,35 @@ uv run server.py
 ```bash
 uv run agent.py dev
 ```
+
+---
+
+---
+
+## Model Context Protocol (MCP) Tools (100% Free)
+
+The agent connects via standard `MCPServerStdio` to `mcp_server.py`, equipping the voice model with 8 real-time tools:
+
+### 1. Web & News Search (DuckDuckGo)
+- **`search_web(query, max_results=4)`**: Real-time web search for current events, facts, weather, documentation, etc.
+- **`search_news(query, max_results=4)`**: Fetches breaking news headlines and article excerpts.
+- *Cost*: **100% FREE** with zero rate limits and no API key required.
+
+### 2. Calendar Management
+- **`calendar_list_events(timeframe='today')`**: List events for `today`, `tomorrow`, `this_week`, `all`, or a specific date.
+- **`calendar_create_event(title, date, start_time, end_time, description, location)`**: Create and persist a new appointment.
+- **`calendar_delete_event(event_id)`**: Cancel an event by ID.
+- *Google Calendar Sync (Optional)*: Set `GOOGLE_CALENDAR_ICAL_URL` in `.env` to automatically merge events from your live Google Calendar.
+
+### 3. Gmail Integration
+- **`gmail_send_email(to_email, subject, body)`**: Composes and sends real emails via Gmail SMTP (`smtp.gmail.com:465` SSL).
+- **`gmail_read_inbox(max_results=5, unread_only=True)`**: Reads and extracts sender, subject, and snippet from Gmail inbox via IMAP (`imap.gmail.com:993` SSL).
+- **`gmail_search_emails(query, max_results=5)`**: Searches emails by keyword or sender.
+- *Cost*: **100% FREE** using standard Google App Passwords:
+  1. Visit [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).
+  2. Generate a 16-letter App Password for "Mail".
+  3. Add `GMAIL_ADDRESS` and `GMAIL_APP_PASSWORD` to your `.env` or Railway settings.
+  *(If credentials are not yet configured, the agent gracefully records messages to a simulated outbox so workflows never fail!)*
 
 ---
 
