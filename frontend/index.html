@@ -590,6 +590,14 @@
       return uid;
     }
 
+    // Safety fallback: ensure any reference to userId anywhere resolves transparently
+    try {
+      Object.defineProperty(window, 'userId', {
+        get: function() { return getActiveUserId(); },
+        configurable: true
+      });
+    } catch (e) {}
+
     function openOAuthModal() {
       const modal = document.getElementById('oauthModal');
       const uriInput = document.getElementById('redirectUriInput');
