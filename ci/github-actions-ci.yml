@@ -1,0 +1,56 @@
+name: CI / Production Quality Gate
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    name: Run Test Suite & Linters
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install Project Dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Run Test Suite with Pytest
+        run: uv run pytest -v
+
+      - name: Verify Core Module Imports
+        run: uv run python -c "import agent, server, auth_manager, gmail_client, mcp_server; print('All core modules imported cleanly!')"
+
+  docker:
+    name: Verify Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: livekit-voice-agent:ci-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

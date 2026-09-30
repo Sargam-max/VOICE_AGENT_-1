@@ -8,6 +8,7 @@ Capabilities:
   4. Supports CORS preflight (OPTIONS) for multi-origin/cross-port access
 """
 
+from datetime import datetime
 import json
 import logging
 import mimetypes
@@ -29,6 +30,16 @@ from livekit.protocol.agent_dispatch import RoomAgentDispatch  # noqa: E402
 from livekit.protocol.room import RoomConfiguration  # noqa: E402
 
 from auth_manager import auth_manager  # noqa: E402
+from gmail_client import gmail_client  # noqa: E402
+from mcp_server import (  # noqa: E402
+    fetch_all_calendar_events,
+    load_calendar_events,
+    load_simulated_outbox,
+    record_outbox_email,
+    resolve_date_phrase,
+    save_calendar_events,
+    search_web,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -163,6 +174,129 @@ class Handler(BaseHTTPRequestHandler):
                 logger.error(f"Failed to update Google OAuth config: {e}")
                 self._send_json(500, {"error": str(e)})
             return
+
+        # Add calendar event via REST API
+        if parsed.path == "/api/calendar/events":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                raw_body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
+                data = json.loads(raw_body)
+                title = data.get("title", "").strip()
+                if not title:
+                    self._send_json(400, {"error": "Event title is required."})
+                    return
+                date_str = resolve_date_phrase(data.get("date", "today"))
+                start_time = data.get("start_time", "12:00 PM").strip()
+                end_time = data.get("end_time", "").strip()
+                description = data.get("description", "").strip()
+                location = data.get("location", "").strip()
+                event_id = f"evt-{int(datetime.now().timestamp() * 1000) % 1000000}"
+                new_event = {
+                    "id": event_id,
+                    "title": title,
+                    "date": date_str,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "description": description,
+                    "location": location,
+                    "created_at": datetime.now().isoformat(),
+                }
+                events = load_calendar_events()
+                events.append(new_event)
+                save_calendar_events(events)
+                self._send_json(201, {"success": True, "event": new_event})
+            except Exception as e:
+                logger.error(f"Error adding calendar event: {e}")
+                self._send_json(500, {"error": str(e)})
+            return
+
+        # Delete calendar event via POST fallback
+        if parsed.path in ("/api/calendar/delete", "/api/calendar/events/delete"):
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                raw_body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
+                data = json.loads(raw_body) if raw_body.strip() else {}
+                event_id = data.get("id") or parse_qs(parsed.query).get("id", [""])[0]
+                event_id = str(event_id).strip()
+                if not event_id:
+                    self._send_json(400, {"error": "Event ID is required."})
+                    return
+                events = load_calendar_events()
+                orig_len = len(events)
+                events = [e for e in events if str(e.get("id")) != event_id]
+                if len(events) == orig_len:
+                    self._send_json(404, {"error": f"Event '{event_id}' not found."})
+                    return
+                save_calendar_events(events)
+                self._send_json(200, {"success": True, "id": event_id})
+            except Exception as e:
+                logger.error(f"Error deleting event: {e}")
+                self._send_json(500, {"error": str(e)})
+            return
+
+        # Send email via REST API (tests Gmail API v1 or simulated outbox)
+        if parsed.path == "/api/email/send":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                raw_body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
+                data = json.loads(raw_body)
+                user_id = data.get("user_id", "default").strip() or "default"
+                to_email = data.get("to_email", "").strip()
+                subject = data.get("subject", "").strip()
+                body = data.get("body", "").strip()
+                if not to_email or "@" not in to_email:
+                    self._send_json(400, {"error": "Valid to_email required."})
+                    return
+                if not subject or not body:
+                    self._send_json(400, {"error": "Subject and body required."})
+                    return
+
+                if auth_manager.is_user_authenticated(user_id):
+                    res = gmail_client.send_email(user_id, to_email=to_email, subject=subject, body=body)
+                    record_outbox_email({
+                        "user_id": user_id,
+                        "to": to_email,
+                        "subject": subject,
+                        "body": body,
+                        "timestamp": datetime.now().isoformat(),
+                        "status": "sent_gmail_api",
+                        "message_id": res.get("id", ""),
+                    })
+                    self._send_json(200, {"success": True, "status": "sent_gmail_api", "id": res.get("id")})
+                else:
+                    record_outbox_email({
+                        "user_id": user_id,
+                        "to": to_email,
+                        "subject": subject,
+                        "body": body,
+                        "timestamp": datetime.now().isoformat(),
+                        "status": "simulated_sent",
+                    })
+                    self._send_json(200, {"success": True, "status": "simulated_sent", "note": "OAuth not authenticated for user; logged to simulated outbox"})
+            except Exception as e:
+                logger.error(f"Error sending email via API: {e}")
+                self._send_json(500, {"error": str(e)})
+            return
+
+        self.send_error(404, "Not found")
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        if parsed.path in ("/api/calendar/events", "/api/calendar/events/delete"):
+            qs = parse_qs(parsed.query)
+            event_id = qs.get("id", [""])[0].strip()
+            if not event_id:
+                self._send_json(400, {"error": "Event ID is required."})
+                return
+            events = load_calendar_events()
+            orig_len = len(events)
+            events = [e for e in events if str(e.get("id")) != event_id]
+            if len(events) == orig_len:
+                self._send_json(404, {"error": f"Event '{event_id}' not found."})
+                return
+            save_calendar_events(events)
+            self._send_json(200, {"success": True, "id": event_id})
+            return
         self.send_error(404, "Not found")
 
     def do_GET(self):
@@ -181,6 +315,66 @@ class Handler(BaseHTTPRequestHandler):
                     "message": "Server running" if configured else "Server running, waiting for LiveKit credentials",
                 },
             )
+            return
+
+        # System Metrics & Diagnostics endpoint
+        if parsed.path == "/api/system/metrics":
+            configured = bool(LIVEKIT_URL and LIVEKIT_API_KEY and LIVEKIT_API_SECRET)
+            self._send_json(
+                200,
+                {
+                    "status": "healthy",
+                    "version": "1.0.0",
+                    "platform": sys.platform,
+                    "python_version": sys.version.split()[0],
+                    "livekit_configured": configured,
+                    "agent_name": LIVEKIT_AGENT_NAME,
+                    "google_oauth_configured": auth_manager.is_oauth_configured(),
+                    "active_tools": [
+                        "search_web",
+                        "search_news",
+                        "calendar_list_events",
+                        "calendar_create_event",
+                        "calendar_delete_event",
+                        "gmail_read_inbox",
+                        "gmail_search_emails",
+                        "gmail_send_email",
+                        "gmail_auth_status",
+                    ],
+                    "pipeline": {
+                        "stt": "AssemblyAI Universal Streaming (en)",
+                        "llm": "Google Gemini 2.5 Flash",
+                        "tts": "Cartesia Sonic-3",
+                        "vad": "Silero VAD",
+                        "turn_detector": "LiveKit ML TurnDetector",
+                        "noise_cancellation": "LiveKit BVC",
+                        "transport": "WebRTC / LiveKit Cloud",
+                    },
+                },
+            )
+            return
+
+        # Calendar events endpoint
+        if parsed.path == "/api/calendar/events":
+            events = fetch_all_calendar_events()
+            self._send_json(200, {"events": events, "count": len(events)})
+            return
+
+        # Outbox / sent messages endpoint
+        if parsed.path == "/api/outbox":
+            outbox = load_simulated_outbox()
+            self._send_json(200, {"outbox": outbox, "count": len(outbox)})
+            return
+
+        # Live Web Search test endpoint
+        if parsed.path == "/api/websearch":
+            qs = parse_qs(parsed.query)
+            query = qs.get("q", [""])[0].strip()
+            if not query:
+                self._send_json(400, {"error": "Query parameter 'q' required."})
+                return
+            res_text = search_web(query)
+            self._send_json(200, {"query": query, "result": res_text})
             return
 
         # Google OAuth 2.0 login endpoint

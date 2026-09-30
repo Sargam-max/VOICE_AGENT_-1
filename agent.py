@@ -38,21 +38,23 @@ class Assistant(Agent):
     def __init__(self, tools: list | None = None) -> None:
         super().__init__(
             instructions=(
-                "You are voiceai, a friendly, intelligent, and natural real-time voice and text AI assistant. "
-                "You are equipped with powerful real-time tools via Model Context Protocol (MCP):\n"
-                "1. Web Search & Breaking News (search_web, search_news): Query live web facts, weather, news, documentation.\n"
-                "2. Calendar Scheduling & Events (calendar_list_events, calendar_create_event, calendar_delete_event): Check schedule, create appointments, delete events.\n"
-                "3. Gmail Integration (gmail_read_inbox, gmail_search_emails, gmail_send_email, gmail_auth_status): Read emails, search messages, or compose & send emails via user's Google OAuth 2.0.\n\n"
+                "You are voiceai, a friendly, highly capable, and intelligent real-time voice and text AI assistant. "
+                "You were built by Sargam using LiveKit Agents, Google Gemini 2.5 Flash, Cartesia Sonic-3, and AssemblyAI Streaming STT.\n\n"
+                "YOUR CORE TOOLSET (via Model Context Protocol / MCP):\n"
+                "1. Web Search & Breaking News (`search_web`, `search_news`): Query current live web facts, news, documentation, weather, or real-time info.\n"
+                "2. Calendar Management (`calendar_list_events`, `calendar_create_event`, `calendar_delete_event`): View appointments, create new events, or cancel existing events.\n"
+                "3. Gmail Integration (`gmail_read_inbox`, `gmail_search_emails`, `gmail_send_email`, `gmail_auth_status`): Read inbox messages, search emails, and compose & send real emails via Google OAuth 2.0.\n\n"
                 "CRITICAL EMAIL INSTRUCTIONS:\n"
                 "- When the user asks to write, draft, or send an email to someone (e.g. 'write email to akash gupta 23mc3005@rgipt.ac.in greeting him happy journey'):\n"
                 "  1. Extract the recipient email address (e.g. '23mc3005@rgipt.ac.in').\n"
                 "  2. Autonomously craft an appropriate, concise subject (e.g. 'Wishing you a Safe and Happy Journey!').\n"
-                "  3. Autonomously draft a friendly, well-written message body fitting the user's intent.\n"
+                "  3. Autonomously draft a friendly, professional message body fitting the user's intent.\n"
                 "  4. Immediately execute the `gmail_send_email` tool with `to_email`, `subject`, and `body`.\n"
                 "  5. In your spoken reply, announce clearly: 'I have sent the email to [recipient] with the subject [subject]!'\n"
-                "- If the user asks to read, list, or check recent emails, call `gmail_read_inbox` or `gmail_search_emails` and summarize the results.\n"
-                "- Whenever the user asks a question requiring current information, scheduling, calendar checks, or email actions, ALWAYS call your tools!\n"
-                "- Keep your spoken answers concise, direct, and conversational. Avoid markdown formatting, bulleted lists, or raw code in speech."
+                "- If the user asks to read, list, or check recent emails, call `gmail_read_inbox` or `gmail_search_emails` and summarize the results.\n\n"
+                "CONVERSATIONAL STYLE:\n"
+                "- Whenever the user asks a question requiring current facts, scheduling, calendar checks, or email actions, ALWAYS call your tools!\n"
+                "- Keep your spoken replies concise, natural, and friendly. Avoid markdown asterisks, bulleted lists, and raw code in speech."
             ),
             tools=tools or [],
         )
@@ -93,6 +95,62 @@ async def entrypoint(ctx: JobContext):
         turn_handling={"turn_detection": TurnDetector()},
     )
 
+    def broadcast_event(data_dict: dict):
+        """Broadcast real-time structured telemetry to the room data channel."""
+        try:
+            payload = json.dumps(data_dict).encode("utf-8")
+            asyncio.create_task(ctx.room.local_participant.publish_data(payload, reliable=True))
+        except Exception as err:
+            logger.debug(f"Could not broadcast telemetry event: {err}")
+
+    # Forward tool execution updates to the UI in real time
+    @session.on("tool_execution_updated")
+    def on_tool_update(ev):
+        try:
+            update = ev.update
+            if update.type == "tool_call_started":
+                fn = update.function_call
+                args = fn.arguments if isinstance(fn.arguments, (str, dict, list)) else str(fn.arguments)
+                broadcast_event({
+                    "type": "tool_started",
+                    "tool": fn.name,
+                    "call_id": fn.call_id,
+                    "arguments": args,
+                })
+            elif update.type == "tool_call_ended":
+                broadcast_event({
+                    "type": "tool_ended",
+                    "call_id": update.call_id,
+                    "status": update.status,
+                    "result": update.message or "",
+                })
+        except Exception as e:
+            logger.warning(f"Error handling tool update: {e}")
+
+    @session.on("agent_state_changed")
+    def on_agent_state(ev):
+        broadcast_event({"type": "agent_state", "state": str(ev.new_state)})
+
+    @session.on("user_state_changed")
+    def on_user_state(ev):
+        broadcast_event({"type": "user_state", "state": str(ev.new_state)})
+
+    @session.on("session_usage_updated")
+    def on_usage_update(ev):
+        try:
+            usage = ev.usage
+            prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+            completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+            total_tokens = getattr(usage, "total_tokens", 0) or (prompt_tokens + completion_tokens)
+            broadcast_event({
+                "type": "session_usage",
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            })
+        except Exception:
+            pass
+
     await session.start(
         agent=Assistant(tools=tools),
         room=ctx.room,
@@ -107,6 +165,10 @@ async def entrypoint(ctx: JobContext):
     @ctx.room.on("data_received")
     def on_data_received(dp: rtc.DataPacket):
         try:
+            # Prevent loop: ignore data packets emitted by local agent participant
+            if dp.participant and dp.participant.identity == ctx.room.local_participant.identity:
+                return
+
             raw_text = dp.data.decode("utf-8", errors="ignore").strip()
             if not raw_text:
                 return
@@ -114,6 +176,9 @@ async def entrypoint(ctx: JobContext):
             try:
                 parsed = json.loads(raw_text)
                 if isinstance(parsed, dict):
+                    # Filter out internal telemetry messages
+                    if parsed.get("type") in ("tool_started", "tool_ended", "agent_state", "user_state", "session_usage", "ping", "pong"):
+                        return
                     text = parsed.get("text") or parsed.get("message") or ""
                 elif isinstance(parsed, str):
                     text = parsed

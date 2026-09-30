@@ -41,8 +41,8 @@ class GmailAPIClient:
     def __init__(self, auth=auth_manager):
         self.auth = auth
 
-    def _get_headers(self, user_id: str) -> dict[str, str]:
-        token = self.auth.get_valid_access_token(user_id)
+    def _get_headers(self, user_id: str, force_refresh: bool = False) -> dict[str, str]:
+        token = self.auth.get_valid_access_token(user_id, force_refresh=force_refresh)
         if not token:
             raise PermissionError(
                 f"User '{user_id}' has not connected their Google Account or token expired."
@@ -57,6 +57,9 @@ class GmailAPIClient:
         headers = self._get_headers(user_id)
         with httpx.Client(timeout=10.0) as client:
             resp = client.get(f"{GMAIL_API_BASE}/profile", headers=headers)
+            if resp.status_code == 401:
+                headers = self._get_headers(user_id, force_refresh=True)
+                resp = client.get(f"{GMAIL_API_BASE}/profile", headers=headers)
             if resp.status_code != 200:
                 raise RuntimeError(f"Gmail profile API error: {resp.status_code} - {resp.text}")
             return resp.json()
@@ -89,6 +92,14 @@ class GmailAPIClient:
                 headers=headers,
                 json=payload,
             )
+            if resp.status_code == 401:
+                # Token may have been invalidated; force refresh and retry once
+                headers = self._get_headers(user_id, force_refresh=True)
+                resp = client.post(
+                    f"{GMAIL_API_BASE}/messages/send",
+                    headers=headers,
+                    json=payload,
+                )
             if resp.status_code not in (200, 201):
                 logger.error(f"Gmail send error: {resp.status_code} - {resp.text}")
                 raise RuntimeError(f"Gmail API error: {resp.status_code} - {resp.text}")
@@ -125,6 +136,13 @@ class GmailAPIClient:
                 headers=headers,
                 params=params,
             )
+            if list_resp.status_code == 401:
+                headers = self._get_headers(user_id, force_refresh=True)
+                list_resp = client.get(
+                    f"{GMAIL_API_BASE}/messages",
+                    headers=headers,
+                    params=params,
+                )
             if list_resp.status_code != 200:
                 raise RuntimeError(f"Gmail list API error: {list_resp.status_code} - {list_resp.text}")
 

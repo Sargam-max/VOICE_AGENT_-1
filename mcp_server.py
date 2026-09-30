@@ -113,6 +113,15 @@ def gmail_send_email(
         try:
             res = gmail_client.send_email(uid, to_email=to_email, subject=subject, body=body)
             msg_id = res.get("id", "")
+            record_outbox_email({
+                "user_id": uid,
+                "to": to_email,
+                "subject": subject,
+                "body": body,
+                "timestamp": datetime.now().isoformat(),
+                "status": "sent_gmail_api",
+                "message_id": msg_id,
+            })
             return f"Email successfully sent to {to_email} via Gmail API (Message ID: {msg_id})!"
         except Exception as e:
             logger.error(f"Gmail API send failed for '{uid}': {e}", exc_info=True)
@@ -132,6 +141,14 @@ def gmail_send_email(
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
                 server.login(gmail_addr, gmail_app_pw)
                 server.sendmail(gmail_addr, [to_email.strip()], msg.as_string())
+            record_outbox_email({
+                "user_id": uid,
+                "to": to_email,
+                "subject": subject,
+                "body": body,
+                "timestamp": datetime.now().isoformat(),
+                "status": "sent_smtp",
+            })
             return f"Email sent to {to_email} using configured Gmail SMTP."
         except Exception as e:
             logger.error(f"SMTP send failed: {e}")
@@ -145,14 +162,7 @@ def gmail_send_email(
         "timestamp": datetime.now().isoformat(),
         "status": "simulated_sent",
     }
-    try:
-        outbox = []
-        if OUTBOX_FILE.exists():
-            outbox = json.loads(OUTBOX_FILE.read_text(encoding="utf-8"))
-        outbox.append(simulated_record)
-        OUTBOX_FILE.write_text(json.dumps(outbox, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    record_outbox_email(simulated_record)
 
     return (
         f"Email queued to '{to_email}' with subject '{subject}'.\n"
@@ -289,24 +299,30 @@ def search_web(query: str, max_results: int = 4) -> str:
         return "Please provide a search query."
 
     logger.info(f"Executing web search for: '{query}'")
+    results = []
     try:
         from ddgs import DDGS
-        with DDGS() as ddgs:
+        with DDGS(timeout=10) as ddgs:
             results = list(ddgs.text(query.strip(), max_results=max_results))
+    except Exception as e1:
+        try:
+            from duckduckgo_search import DDGS
+            with DDGS(timeout=10) as ddgs:
+                results = list(ddgs.text(query.strip(), max_results=max_results))
+        except Exception as e2:
+            logger.error(f"Error executing web search (ddgs={e1}, duckduckgo_search={e2})")
+            return f"Unable to complete web search: {str(e1)}"
 
-        if not results:
-            return f"No web search results found for '{query}'."
+    if not results:
+        return f"No web search results found for '{query}'."
 
-        summaries = []
-        for i, item in enumerate(results, 1):
-            title = item.get("title", "No Title")
-            snippet = item.get("body", "No description available.")
-            summaries.append(f"{i}. {title}: {snippet}")
+    summaries = []
+    for i, item in enumerate(results, 1):
+        title = item.get("title", "No Title")
+        snippet = item.get("body", "No description available.")
+        summaries.append(f"{i}. {title}: {snippet}")
 
-        return "\n\n".join(summaries)
-    except Exception as e:
-        logger.error(f"Error executing web search: {e}", exc_info=True)
-        return f"Unable to complete web search: {str(e)}"
+    return "\n\n".join(summaries)
 
 
 @mcp.tool()
@@ -316,33 +332,71 @@ def search_news(query: str, max_results: int = 4) -> str:
         return "Please provide a news query."
 
     logger.info(f"Executing news search for: '{query}'")
+    results = []
     try:
         from ddgs import DDGS
-        with DDGS() as ddgs:
+        with DDGS(timeout=10) as ddgs:
             results = list(ddgs.news(query.strip(), max_results=max_results))
+    except Exception as e1:
+        try:
+            from duckduckgo_search import DDGS
+            with DDGS(timeout=10) as ddgs:
+                results = list(ddgs.news(query.strip(), max_results=max_results))
+        except Exception as e2:
+            logger.error(f"Error executing news search (ddgs={e1}, duckduckgo_search={e2})")
+            return f"Unable to complete news search: {str(e1)}"
 
-        if not results:
-            return f"No news results found for '{query}'."
+    if not results:
+        return f"No news results found for '{query}'."
 
-        summaries = []
-        for i, item in enumerate(results, 1):
-            title = item.get("title", "No Title")
-            date = item.get("date", "Recent")
-            source = item.get("source", "News")
-            body = item.get("body", "")
-            summaries.append(f"{i}. [{source} - {date}] {title}: {body}")
+    summaries = []
+    for i, item in enumerate(results, 1):
+        title = item.get("title", "No Title")
+        date = item.get("date", "Recent")
+        source = item.get("source", "News")
+        body = item.get("body", "")
+        summaries.append(f"{i}. [{source} - {date}] {title}: {body}")
 
-        return "\n\n".join(summaries)
-    except Exception as e:
-        logger.error(f"Error executing news search: {e}", exc_info=True)
-        return f"Unable to complete news search: {str(e)}"
+    return "\n\n".join(summaries)
 
 
 # ==============================================================================
 # 3. CALENDAR TOOLS (Persistent Calendar Store & Google Calendar Sync)
 # ==============================================================================
 
-def _load_events() -> list[dict]:
+WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+
+def resolve_date_phrase(phrase: str) -> str:
+    """Resolve natural language date phrases like 'today', 'tomorrow', 'Friday', 'next Monday' to YYYY-MM-DD."""
+    now = datetime.now()
+    clean = (phrase or "").lower().strip()
+    if not clean or clean == "today":
+        return now.strftime("%Y-%m-%d")
+    if clean == "tomorrow":
+        return (now + timedelta(days=1)).strftime("%Y-%m-%d")
+    if clean == "yesterday":
+        return (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", clean):
+        return clean
+
+    # Check for weekdays (e.g. "friday", "this friday", "next friday")
+    target_clean = clean.replace("this", "").replace("next", "").strip()
+    if target_clean in WEEKDAYS:
+        target_idx = WEEKDAYS.index(target_clean)
+        current_idx = now.weekday()
+        days_ahead = (target_idx - current_idx) % 7
+        if "next" in clean and days_ahead == 0:
+            days_ahead = 7
+        elif days_ahead == 0 and clean != "today":
+            days_ahead = 7
+        return (now + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+
+    return now.strftime("%Y-%m-%d")
+
+
+def load_calendar_events() -> list[dict]:
+    """Load local persistent calendar events."""
     if not CALENDAR_FILE.exists():
         today_str = datetime.now().strftime("%Y-%m-%d")
         initial = [
@@ -356,7 +410,7 @@ def _load_events() -> list[dict]:
                 "location": "LiveKit Voice Room",
             }
         ]
-        _save_events(initial)
+        save_calendar_events(initial)
         return initial
 
     try:
@@ -365,14 +419,24 @@ def _load_events() -> list[dict]:
         return []
 
 
-def _save_events(events: list[dict]) -> None:
+def save_calendar_events(events: list[dict]) -> None:
+    """Save local calendar events to disk."""
     try:
         CALENDAR_FILE.write_text(json.dumps(events, indent=2), encoding="utf-8")
     except Exception as e:
         logger.error(f"Error saving calendar file: {e}")
 
 
-def _fetch_google_calendar_ical() -> list[dict]:
+def _load_events() -> list[dict]:
+    return load_calendar_events()
+
+
+def _save_events(events: list[dict]) -> None:
+    save_calendar_events(events)
+
+
+def fetch_google_calendar_ical() -> list[dict]:
+    """Fetch events from user's Google Calendar iCal feed if configured."""
     ical_url = os.environ.get("GOOGLE_CALENDAR_ICAL_URL", "").strip()
     if not ical_url:
         return []
@@ -413,18 +477,53 @@ def _fetch_google_calendar_ical() -> list[dict]:
     return events
 
 
+def _fetch_google_calendar_ical() -> list[dict]:
+    return fetch_google_calendar_ical()
+
+
+def fetch_all_calendar_events() -> list[dict]:
+    """Return merged list of local events and synced Google Calendar events."""
+    local_events = load_calendar_events()
+    gcal_events = fetch_google_calendar_ical()
+    all_events = local_events + gcal_events
+    all_events.sort(key=lambda x: (x.get("date", ""), x.get("start_time", "")))
+    return all_events
+
+
+def load_simulated_outbox() -> list[dict]:
+    """Load logged / outbox emails."""
+    if not OUTBOX_FILE.exists():
+        return []
+    try:
+        return json.loads(OUTBOX_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def record_outbox_email(record: dict) -> None:
+    """Save an email record to the outbox log."""
+    try:
+        outbox = load_simulated_outbox()
+        outbox.insert(0, record)  # most recent first
+        OUTBOX_FILE.write_text(json.dumps(outbox[:100], indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Could not record outbox email: {e}")
+
+
 @mcp.tool()
 def calendar_list_events(timeframe: str = "today") -> str:
-    """List scheduled calendar events and appointments."""
+    """List scheduled calendar events and appointments.
+
+    Args:
+        timeframe: 'today', 'tomorrow', 'this_week', a day name (e.g. 'friday'), or 'all'.
+    """
     now = datetime.now()
     today_str = now.strftime("%Y-%m-%d")
     tomorrow_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    local_events = _load_events()
-    gcal_events = _fetch_google_calendar_ical()
-    all_events = local_events + gcal_events
-
+    all_events = fetch_all_calendar_events()
     tf = timeframe.lower().strip()
+
     if tf == "today":
         filtered = [e for e in all_events if e.get("date") == today_str]
         header = f"Events for Today ({today_str}):"
@@ -438,6 +537,10 @@ def calendar_list_events(timeframe: str = "today") -> str:
     elif re.match(r"^\d{4}-\d{2}-\d{2}$", tf):
         filtered = [e for e in all_events if e.get("date") == tf]
         header = f"Events for {tf}:"
+    elif tf in WEEKDAYS or any(w in tf for w in WEEKDAYS):
+        resolved = resolve_date_phrase(tf)
+        filtered = [e for e in all_events if e.get("date") == resolved]
+        header = f"Events for {tf.title()} ({resolved}):"
     else:
         filtered = all_events
         header = "All Scheduled Calendar Events:"
@@ -445,7 +548,6 @@ def calendar_list_events(timeframe: str = "today") -> str:
     if not filtered:
         return f"{header}\nNo events scheduled."
 
-    filtered.sort(key=lambda x: (x.get("date", ""), x.get("start_time", "")))
     lines = [header]
     for e in filtered:
         time_part = e.get("start_time", "No time")
@@ -466,21 +568,20 @@ def calendar_create_event(
     description: str = "",
     location: str = "",
 ) -> str:
-    """Create and schedule a new calendar event or appointment."""
+    """Create and schedule a new calendar event or appointment.
+
+    Args:
+        title: Title/summary of the appointment.
+        date: 'today', 'tomorrow', weekday ('friday'), or 'YYYY-MM-DD'.
+        start_time: Starting time (e.g. '2:00 PM', '14:00').
+        end_time: Optional end time.
+        description: Optional notes/details.
+        location: Optional location (e.g. 'Zoom', 'Office').
+    """
     if not title or not title.strip():
         return "Event title is required."
 
-    now = datetime.now()
-    d_clean = date.lower().strip()
-    if d_clean == "today":
-        resolved_date = now.strftime("%Y-%m-%d")
-    elif d_clean == "tomorrow":
-        resolved_date = (now + timedelta(days=1)).strftime("%Y-%m-%d")
-    elif re.match(r"^\d{4}-\d{2}-\d{2}$", d_clean):
-        resolved_date = d_clean
-    else:
-        resolved_date = now.strftime("%Y-%m-%d")
-
+    resolved_date = resolve_date_phrase(date)
     event_id = f"evt-{int(datetime.now().timestamp() * 1000) % 1000000}"
     new_event = {
         "id": event_id,
@@ -493,9 +594,9 @@ def calendar_create_event(
         "created_at": datetime.now().isoformat(),
     }
 
-    events = _load_events()
+    events = load_calendar_events()
     events.append(new_event)
-    _save_events(events)
+    save_calendar_events(events)
 
     time_str = f"at {start_time}" + (f" - {end_time}" if end_time else "")
     return f"Event '{title.strip()}' scheduled on {resolved_date} {time_str} (ID: {event_id})."
@@ -507,14 +608,14 @@ def calendar_delete_event(event_id: str) -> str:
     if not event_id:
         return "Please specify the event ID to delete."
 
-    events = _load_events()
+    events = load_calendar_events()
     initial_len = len(events)
-    events = [e for e in events if e.get("id") != event_id.strip()]
+    events = [e for e in events if str(e.get("id")) != str(event_id).strip()]
 
     if len(events) == initial_len:
         return f"Event with ID '{event_id}' was not found in your calendar."
 
-    _save_events(events)
+    save_calendar_events(events)
     return f"Event '{event_id}' has been cancelled and removed."
 
 

@@ -59,9 +59,9 @@ class GoogleAuthManager:
         default_redirect_uri: str | None = None,
         tokens_dir: str | Path | None = None,
     ):
-        self.client_id = client_id or GOOGLE_CLIENT_ID
-        self.client_secret = client_secret or GOOGLE_CLIENT_SECRET
-        self.default_redirect_uri = default_redirect_uri or DEFAULT_REDIRECT_URI
+        self.client_id = client_id if client_id is not None else GOOGLE_CLIENT_ID
+        self.client_secret = client_secret if client_secret is not None else GOOGLE_CLIENT_SECRET
+        self.default_redirect_uri = default_redirect_uri if default_redirect_uri is not None else DEFAULT_REDIRECT_URI
         self.tokens_dir = Path(tokens_dir) if tokens_dir else TOKENS_DIR
         self.tokens_dir.mkdir(parents=True, exist_ok=True)
 
@@ -168,8 +168,8 @@ class GoogleAuthManager:
         logger.info(f"Stored Google OAuth tokens for user '{user_id}' ({email_address})")
         return token_data
 
-    def get_valid_access_token(self, user_id: str) -> str | None:
-        """Return a valid access token for user_id, automatically refreshing if expired."""
+    def get_valid_access_token(self, user_id: str, force_refresh: bool = False) -> str | None:
+        """Return a valid access token for user_id, automatically refreshing if expired or forced."""
         token_file = self.get_token_file(user_id)
         if not token_file.exists():
             return None
@@ -180,12 +180,12 @@ class GoogleAuthManager:
             logger.error(f"Error loading token file for '{user_id}': {e}")
             return None
 
-        # Check if token is still valid (with 60-second grace window)
+        # Check if token is still valid (with 60-second grace window) unless force refresh requested
         expires_at = data.get("expires_at", 0)
         access_token = data.get("access_token")
         refresh_token = data.get("refresh_token")
 
-        if time.time() < (expires_at - 60) and access_token:
+        if not force_refresh and time.time() < (expires_at - 60) and access_token:
             return access_token
 
         # Need to refresh token
