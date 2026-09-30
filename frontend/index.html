@@ -828,6 +828,7 @@
     async function connect() {
       clearError();
       const displayName = (identityInput && identityInput.value.trim()) ? identityInput.value.trim() : 'Guest';
+      const userId = getActiveUserId();
       const rawRoom = (document.getElementById('roomInput') && document.getElementById('roomInput').value.trim()) ? document.getElementById('roomInput').value.trim() : '';
       const roomName = (rawRoom && rawRoom !== 'voice-agent-room') ? rawRoom : `room-${userId}`;
 
